@@ -47,6 +47,7 @@ NAU7802::NAU7802(const I2CSPIDriverConfig &config) :
 	I2C(config),
 	I2CSPIDriver(config)
 {
+	PX4_WARN("NAU7802 Constructor!");
 }
 
 NAU7802::~NAU7802() {
@@ -57,15 +58,20 @@ NAU7802::~NAU7802() {
 
 // Returns whether the sensor is good (1 == good, 0 == bad)
 int NAU7802::probe() {
-	int ret = (0x0F == getRevisionCode()); // CHECK getRevisionCode
+	int ret = true;
+	PX4_WARN("PROBING! Start");
+	ret &= reset(); //Reset all registers
+	ret &= powerUp(); //Power on analog and digital sections of the scale
+	ret &= (0x0F == getRevisionCode()); // CHECK getRevisionCode
+	PX4_WARN("PROBING! returning %i", ret);
 	return ret;
 }
 
 // Initalises the Sensor
 int NAU7802::init() {
-
-	int ret = ((true == begin(true)) ? PX4_OK : PX4_ERROR);
-
+	PX4_WARN("NAU7802 Initalising!");
+	int ret = ((true == begin()) ? PX4_OK : PX4_ERROR);
+	PX4_WARN("NAU7802 Begun! returned %i",ret);
 	ScheduleNow();
 	return ret;
 }
@@ -81,7 +87,6 @@ void NAU7802::print_status() {
 
 // Runs a sensor reading and reschedules itself to run repeatedly
 void NAU7802::RunImpl() {
-	int ret = PX4_ERROR;
 
 	// Take and publish sensor reading
 	PublishMessage();
@@ -91,12 +96,12 @@ void NAU7802::RunImpl() {
 }
 
 // Generates and publishes a UORB message by taking a reading
-int NAU7802::PublishMessage() {
+void NAU7802::PublishMessage() {
 
 	const hrt_abstime timestamp = hrt_absolute_time();
 	force_sensor_s force_msg{};
 	force_msg.timestamp = timestamp;
-	force_msg.force_measurement_N = getReading(); // CHECK getReading
+	force_msg.force_measurement_n = getReading(); // CHECK getReading
 	// force_msg.error_count = perf_event_count(_comms_errors);
 
 	_force_sensor_pub.publish(force_msg);
@@ -210,12 +215,12 @@ int32_t NAU7802::getReading() {
 }
 
 
-bool NAU7802::calibrateAFE(NAU7802_Cal_Mode mode = NAU7802_CALMOD_INTERNAL) {
-	beginCalibrateAFE(mode);
+bool NAU7802::calibrateAFE(NAU7802_Cal_Mode mode) {
+	beginCalibrateAFE(NAU7802_CALMOD_INTERNAL);
   	return waitForCalibrateAFE(1000);
 }
 
-void NAU7802::beginCalibrateAFE(NAU7802_Cal_Mode mode = NAU7802_CALMOD_INTERNAL) {
+void NAU7802::beginCalibrateAFE(NAU7802_Cal_Mode mode) {
 	uint8_t value = getRegister(NAU7802_CTRL2);
 	value &= 0xFC; // Clear CALMOD bits
 	uint8_t calMode = (uint8_t)mode;
@@ -226,7 +231,7 @@ void NAU7802::beginCalibrateAFE(NAU7802_Cal_Mode mode = NAU7802_CALMOD_INTERNAL)
   	setBit(NAU7802_CTRL2_CALS, NAU7802_CTRL2);
 }
 
-bool NAU7802::waitForCalibrateAFE(unsigned long timeout_ms = 0) {
+bool NAU7802::waitForCalibrateAFE(unsigned long timeout_ms) {
 
 	uint64_t startTime = hrt_absolute_time()/1000;
 	NAU7802_Cal_Status cal_ready;
@@ -266,7 +271,7 @@ uint8_t NAU7802::getRegister(uint8_t registerAddress) {
 	// Send the register address and return 1 byte response
 	uint8_t val;
 	uint8_t cmd = registerAddress;
-	int ret = transfer(&cmd, 1, &val, sizeof(val));
+	transfer(&cmd, 1, &val, sizeof(val));
 
 	// TODO: Handle errors here
 	return val;
@@ -275,8 +280,8 @@ uint8_t NAU7802::getRegister(uint8_t registerAddress) {
 bool NAU7802::setRegister(uint8_t registerAddress, uint8_t value) {
 	// Send the two byte command and return success
 	uint8_t cmd[2];
-	cmd[0] = static_cast<uint8_t>(cmd_1);
-	cmd[1] = static_cast<uint8_t>(cmd_2);
+	cmd[0] = static_cast<uint8_t>(registerAddress);
+	cmd[1] = static_cast<uint8_t>(value);
 	int ret = transfer(&cmd[0], 2, nullptr, 0);
 
 	return ret == PX4_OK;
@@ -290,7 +295,7 @@ int32_t NAU7802::get24BitRegister(uint8_t registerAddress) {
 	// Send the 1 byte command and record the 3 byte response
 	uint8_t val[3] = {0,0,0};
 	uint8_t cmd = registerAddress;
-	int ret = transfer(&cmd, 1, &val[0], sizeof(val));
+	transfer(&cmd, 1, &val[0], sizeof(val));
 
 	// TODO: Error Handling of ret
 
@@ -334,7 +339,7 @@ uint32_t NAU7802::get32BitRegister(uint8_t registerAddress) {
 	// Send the register address and return 4 byte response
 	uint8_t val[4] = {0,0,0,0};
 	uint8_t cmd = registerAddress;
-	int ret = transfer(&cmd, 1, &val, sizeof(val));
+	transfer(&cmd, 1, &(val[0]), sizeof(val));
 
 	// Convert the 4 bytes to a single 32 bit unsigned integer
 	uint32_t val32;
@@ -385,7 +390,6 @@ bool NAU7802::getBit(uint8_t bitNumber, uint8_t registerAddress) {
 
 
 
-{
 // int NAU7802::measure()
 // {
 // 	// Send the command to begin a measurement.
@@ -451,4 +455,3 @@ bool NAU7802::getBit(uint8_t bitNumber, uint8_t registerAddress) {
 
 // 	return PX4_OK;
 // }
-}

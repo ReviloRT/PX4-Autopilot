@@ -55,7 +55,6 @@
 #include <px4_platform_common/i2c_spi_buses.h>
 #include <uORB/PublicationMulti.hpp>
 #include <uORB/topics/force_sensor.h>
-#include <uORB/topics/differential_pressure.h>
 
 #include <px4_platform_common/module.h>
 #include <lib/systemlib/mavlink_log.h>
@@ -227,6 +226,7 @@ public:
 	static void print_usage();
 	void print_status() override;
 	void RunImpl();
+	void PublishMessage();
 	int init() override;
 
 
@@ -236,7 +236,7 @@ private:
 	int probe() override;
 
 	// hrt_abstime last_sample_time = hrt_absolute_time(); // Not sure if we need this?
-	// orb_advert_t 	_mavlink_log_pub {nullptr}; //log send to
+	orb_advert_t 	_mavlink_log_pub {nullptr}; //log send to
 
 
 	// uint32_t _measure_interval{CONVERSION_INTERVAL};
@@ -262,10 +262,10 @@ private:
 	unsigned long _ldoRampDelay = 250;
 
 	// Functions
-  	bool begin(bool reset = true); //Check communication and initialize sensor
+  	bool begin(); //Check communication and initialize sensor
   	bool reset(); //Resets all registers to Power Of Defaults
   	bool powerUp();   //Power up digital and analog sections of scale, ~2mA
-	uint8_t getRevisionCode()
+	uint8_t getRevisionCode();
 
 	bool setGain(uint8_t gainValue);
 	bool setLDO(uint8_t ldoValue);

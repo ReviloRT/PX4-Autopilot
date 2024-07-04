@@ -60,7 +60,7 @@ It can be enabled with the "SENS_EN_NAU7802" parameter set to 1.
 
 extern "C" int nau7802_main(int argc, char *argv[])
 {
-
+	PX4_WARN("Running nau7802_main!");
 	using ThisDriver = NAU7802;
 	BusCLIArguments cli{true, false};
 	cli.i2c_address = I2C_ADDRESS_DEFAULT;
@@ -73,10 +73,11 @@ extern "C" int nau7802_main(int argc, char *argv[])
 		return -1;
 	}
 
-	BusInstanceIterator iterator(MODULE_NAME, cli, DRV_DIFF_PRESS_DEVTYPE_NAU7802);
+	BusInstanceIterator iterator(MODULE_NAME, cli, DRV_FORCE_SENS_DEVTYPE_NAU7802);
 
 
 	if (!strcmp(verb, "start")) {
+		PX4_WARN("Running nau7802 module_start!");
 		return ThisDriver::module_start(cli, iterator);
 
 	} else if (!strcmp(verb, "stop")) {
