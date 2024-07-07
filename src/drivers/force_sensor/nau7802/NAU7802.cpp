@@ -46,43 +46,35 @@
 NAU7802::NAU7802(const I2CSPIDriverConfig &config) :
 	I2C(config),
 	I2CSPIDriver(config)
-{
-	PX4_WARN("NAU7802 Constructor!");
-}
+{}
 
-NAU7802::~NAU7802() {
-	// perf_free(_sample_perf);
-	// perf_free(_comms_errors);
-	// perf_free(_fault_perf);
-}
+NAU7802::~NAU7802() {}
 
-// Returns whether the sensor is good (1 == good, 0 == bad)
+// Returns whether the sensor is good
 int NAU7802::probe() {
-	int ret = true;
-	PX4_WARN("PROBING! Start");
-	ret &= reset(); //Reset all registers
-	ret &= powerUp(); //Power on analog and digital sections of the scale
-	ret &= (0x0F == getRevisionCode()); // CHECK getRevisionCode
-	PX4_WARN("PROBING! returning %i", ret);
-	return ret;
+	uint8_t code;
+	int status = getRevisionCode(&code);
+	if (status != PX4_OK) return status;
+	// if (code != 0x0F) return PX4_ERROR;
+
+	return PX4_OK;
 }
 
 // Initalises the Sensor
 int NAU7802::init() {
 	PX4_WARN("NAU7802 Initalising!");
-	int ret = ((true == begin()) ? PX4_OK : PX4_ERROR);
-	PX4_WARN("NAU7802 Begun! returned %i",ret);
+	int status = I2C::init();
+	if (status != PX4_OK) return status;
+	status = begin();
+	if (status != PX4_OK) return status;
+
 	ScheduleNow();
-	return ret;
+	return PX4_OK;
 }
 
 // Prints the current status of the I2C connection
 void NAU7802::print_status() {
 	I2CSPIDriverBase::print_status();
-
-	// perf_print_counter(_sample_perf);
-	// perf_print_counter(_comms_errors);
-	// perf_print_counter(_fault_perf);
 }
 
 // Runs a sensor reading and reschedules itself to run repeatedly
@@ -99,10 +91,13 @@ void NAU7802::RunImpl() {
 void NAU7802::PublishMessage() {
 
 	const hrt_abstime timestamp = hrt_absolute_time();
+	int32_t reading = 0;
+	int error = getReading(&reading);
+
 	force_sensor_s force_msg{};
 	force_msg.timestamp = timestamp;
-	force_msg.force_measurement_n = getReading(); // CHECK getReading
-	// force_msg.error_count = perf_event_count(_comms_errors);
+	force_msg.error_status = error;
+	force_msg.force_measurement_n = reading;
 
 	_force_sensor_pub.publish(force_msg);
 
@@ -112,192 +107,264 @@ void NAU7802::PublishMessage() {
 // Sensor Specific ****************************************************
 
 // Initalises and sets up the sensor, returns true if initalised correctly
-bool NAU7802::begin() {
-
-	bool result = true; //Accumulate a result as we do the setup
-
-	result &= reset(); //Reset all registers
-	result &= powerUp(); //Power on analog and digital sections of the scale
-	result &= setLDO(NAU7802_LDO_3V3); //Set LDO to 3.3V
-	result &= setGain(NAU7802_GAIN_128); //Set gain to 128
-	result &= setSampleRate(NAU7802_SPS_80); //Set samples per second to 80
-
-	uint8_t adc = getRegister(NAU7802_ADC); //Turn off CLK_CHP. From 9.1 power on sequencing.
+int NAU7802::begin() {
+	int status = PX4_OK;
+	status = reset(); //Reset all register;
+		if (status != PX4_OK) return status;
+	status = powerUp(); //Power on analog and digital sections of the scal;
+		if (status != PX4_OK) return status;
+	status = setLDO(NAU7802_LDO_3V3); //Set LDO to 3.3;
+		if (status != PX4_OK) return status;
+	status = setGain(NAU7802_GAIN_128); //Set gain to 12;
+		if (status != PX4_OK) return status;
+	status = setSampleRate(NAU7802_SPS_80); //Set samples per second to 8;
+		if (status != PX4_OK) return status;
+	uint8_t adc;
+	status = getRegister(NAU7802_ADC,&adc); //Turn off CLK_CHP. From 9.1 power on sequencing.
+		if (status != PX4_OK) return status;
 	adc |= 0x30;
-	result &= setRegister(NAU7802_ADC, adc);
-	result &= setBit(NAU7802_PGA_PWR_PGA_CAP_EN, NAU7802_PGA_PWR); //Enable 330pF decoupling cap on chan 2. From 9.14 application circuit note.
-	result &= clearBit(NAU7802_PGA_LDOMODE, NAU7802_PGA); //Ensure LDOMODE bit is clear - improved accuracy and higher DC gain, with ESR < 1 ohm
+	status = setRegister(NAU7802_ADC, adc);
+		if (status != PX4_OK) return status;
+	status = setBit(NAU7802_PGA_PWR_PGA_CAP_EN, NAU7802_PGA_PWR); //Enable 330pF decoupling cap on chan 2. From 9.14 application circuit note;
+		if (status != PX4_OK) return status;
+	status = clearBit(NAU7802_PGA_LDOMODE, NAU7802_PGA); //Ensure LDOMODE bit is clear - improved accuracy and higher DC gain, with ESR < 1 oh;
+		if (status != PX4_OK) return status;
 
 	usleep(_ldoRampDelay * 1000); // Wait for LDO to stabilize - takes about 200ms
 
-	getReading(); // Take ten readings to flush
-	getReading();
-	getReading();
-	getReading();
-	getReading();
-	getReading();
-	getReading();
-	getReading();
-	getReading();
+	// getReading(nullptr); // Take ten readings to flush - Not working in PX4
+	// getReading(nullptr);
+	// getReading(nullptr);
+	// getReading(nullptr);
+	// getReading(nullptr);
+	// getReading(nullptr);
+	// getReading(nullptr);
+	// getReading(nullptr);
+	// getReading(nullptr);
 
-	result &= calibrateAFE(); //Re-cal analog front end when we change gain, sample rate, or channel
+	status = calibrateAFE(); //Re-cal analog front end when we change gain, sample rate, or channe;
+		if (status != PX4_OK) return status;
 
-	return (result);
+	return status;
 }
 
-bool NAU7802::reset() {
-	setBit(NAU7802_PU_CTRL_RR, NAU7802_PU_CTRL); //Set RR
-	usleep(1000);
-  	return (clearBit(NAU7802_PU_CTRL_RR, NAU7802_PU_CTRL)); //Clear RR to leave reset state
+int NAU7802::reset() {
+	int status = setBit(NAU7802_PU_CTRL_RR, NAU7802_PU_CTRL);  //Set R
+		if (status != PX4_OK) return status;
+
+	px4_usleep(1000);
+
+	status = clearBit(NAU7802_PU_CTRL_RR, NAU7802_PU_CTRL);  //Clear RR to leave reset stat
+		if (status != PX4_OK) return status;
+
+  	return PX4_OK;
 }
 
-bool NAU7802::powerUp() {
-	setBit(NAU7802_PU_CTRL_PUD, NAU7802_PU_CTRL);
-	setBit(NAU7802_PU_CTRL_PUA, NAU7802_PU_CTRL);
+int NAU7802::powerUp() {
+	int status = setBit(NAU7802_PU_CTRL_PUD, NAU7802_PU_CTRL);
+	if (status != PX4_OK) return status;
+	status = setBit(NAU7802_PU_CTRL_PUA, NAU7802_PU_CTRL);
+	if (status != PX4_OK) return status;
 
 	//Wait for Power Up bit to be set - takes approximately 200us
-	uint8_t counter = 0;
-	while (1)
-	{
-		if (getBit(NAU7802_PU_CTRL_PUR, NAU7802_PU_CTRL) == true)
-			break; //Good to go
-		usleep(1000);
+	int counter = 0;
+	bool bit = false;
+	while (bit == false) {
+		status = getBit(NAU7802_PU_CTRL_PUR, NAU7802_PU_CTRL, &bit);
+		if (status != PX4_OK) return status;
+		px4_usleep(1000);
 		if (counter++ > 100)
-			return (false); //Error
+			return PX4_ERROR; //Error
 	}
-	return (setBit(NAU7802_PU_CTRL_CS, NAU7802_PU_CTRL)); // Set Cycle Start bit. See 9.1 point 5
+	status = setBit(NAU7802_PU_CTRL_CS, NAU7802_PU_CTRL);  // Set Cycle Start bit. See 9.1 point ;
+	if (status != PX4_OK) return status;
+
+	return PX4_OK;
 }
 
-uint8_t NAU7802::getRevisionCode() {
-	uint8_t revisionCode = getRegister(NAU7802_DEVICE_REV);
-  	return (revisionCode & 0x0F);
+int NAU7802::getRevisionCode(uint8_t *code) {
+	int status = getRegister(NAU7802_DEVICE_REV, code);
+	if (status != PX4_OK) return status;
+
+	// *code = (*code & 0xFF);
+
+  	return PX4_OK;
 }
 
-
-bool NAU7802::setGain(uint8_t gainValue) {
+int NAU7802::setGain(uint8_t gainValue) {
 	if (gainValue > 0b111)
     		gainValue = 0b111; //Error check
 
-	uint8_t value = getRegister(NAU7802_CTRL1);
-	value &= 0b11111000; //Clear gain bits
-	value |= gainValue;  //Mask in new bits
+	uint8_t reg;
+	int status = getRegister(NAU7802_CTRL1, &reg);
+	if (status != PX4_OK) return status;
 
-	return (setRegister(NAU7802_CTRL1, value));
+	reg &= 0b11111000; //Clear gain bits
+	reg |= gainValue;  //Mask in new bits
+
+	status = setRegister(NAU7802_CTRL1, reg);
+	if (status != PX4_OK) return status;
+
+	return PX4_OK;
 }
 
-bool NAU7802::setLDO(uint8_t ldoValue) {
+int NAU7802::setLDO(uint8_t ldoValue) {
 	if (ldoValue > 0b111)
     		ldoValue = 0b111; //Error check
 
 	//Set the value of the LDO
-	uint8_t value = getRegister(NAU7802_CTRL1);
-	value &= 0b11000111;    //Clear LDO bits
-	value |= ldoValue << 3; //Mask in new LDO bits
-	setRegister(NAU7802_CTRL1, value);
+	uint8_t reg;
+	int status = getRegister(NAU7802_CTRL1, &reg);
+	if (status != PX4_OK) return status;
 
-	return (setBit(NAU7802_PU_CTRL_AVDDS, NAU7802_PU_CTRL)); //Enable the internal LDO
+	reg &= 0b11000111;    //Clear LDO bits
+	reg |= ldoValue << 3; //Mask in new LDO bits
+
+
+	status = setRegister(NAU7802_CTRL1, reg);
+	if (status != PX4_OK) return status;
+	status = setBit(NAU7802_PU_CTRL_AVDDS, NAU7802_PU_CTRL);
+	if (status != PX4_OK) return status;
+
+	return PX4_OK;
 }
 
-bool NAU7802::setSampleRate(uint8_t rate) {
+int NAU7802::setSampleRate(uint8_t rate) {
 	 if (rate > 0b111)
    		 rate = 0b111; //Error check
 
-	uint8_t value = getRegister(NAU7802_CTRL2);
-	value &= 0b10001111; //Clear CRS bits
-	value |= rate << 4;  //Mask in new CRS bits
+	uint8_t reg;
+	int status = getRegister(NAU7802_CTRL2, &reg);
+	if (status != PX4_OK) return status;
 
-	return (setRegister(NAU7802_CTRL2, value));
+	reg &= 0b10001111; //Clear CRS bits
+	reg |= rate << 4;  //Mask in new CRS bits
+
+	status = setRegister(NAU7802_CTRL2, reg);
+	if (status != PX4_OK) return status;
+
+	return PX4_OK;
 }
 
 
-int32_t NAU7802::getReading() {
-	return get24BitRegister(NAU7802_ADCO_B2);
+int NAU7802::getReading(int32_t *reading) {
+	int32_t val = 0;
+	int status = get24BitRegister(NAU7802_ADCO_B2, &val);
+	if (status != PX4_OK) return status;
+
+	*reading = val;
+	return PX4_OK;
+
 }
 
 
-bool NAU7802::calibrateAFE(NAU7802_Cal_Mode mode) {
-	beginCalibrateAFE(NAU7802_CALMOD_INTERNAL);
-  	return waitForCalibrateAFE(1000);
+int NAU7802::calibrateAFE(NAU7802_Cal_Mode mode) {
+	int status = beginCalibrateAFE(NAU7802_CALMOD_INTERNAL);
+	if (status != PX4_OK) return status;
+	status = waitForCalibrateAFE(1000);
+	if (status != PX4_OK) return status;
+  	return PX4_OK;
 }
 
-void NAU7802::beginCalibrateAFE(NAU7802_Cal_Mode mode) {
-	uint8_t value = getRegister(NAU7802_CTRL2);
-	value &= 0xFC; // Clear CALMOD bits
+int NAU7802::beginCalibrateAFE(NAU7802_Cal_Mode mode) {
+	uint8_t reg;
+	int status = getRegister(NAU7802_CTRL2, &reg);
+	if (status != PX4_OK) return status;
+
+	reg &= 0xFC; // Clear CALMOD bits
 	uint8_t calMode = (uint8_t)mode;
   	calMode &= 0x03; // Limit mode to 2 bits
-  	value |= calMode; // Set the mode
-  	setRegister(NAU7802_CTRL2, value);
+  	reg |= calMode; // Set the mode
 
-  	setBit(NAU7802_CTRL2_CALS, NAU7802_CTRL2);
+	status = setRegister(NAU7802_CTRL2, reg);
+	if (status != PX4_OK) return status;
+
+	status = setBit(NAU7802_CTRL2_CALS, NAU7802_CTRL2);
+	if (status != PX4_OK) return status;
+
+  	return PX4_OK;
 }
 
-bool NAU7802::waitForCalibrateAFE(unsigned long timeout_ms) {
+int NAU7802::waitForCalibrateAFE(unsigned long timeout_ms) {
 
 	uint64_t startTime = hrt_absolute_time()/1000;
-	NAU7802_Cal_Status cal_ready;
+	NAU7802_Cal_Status cal_ready = calAFEStatus();
 
-	while ((cal_ready = calAFEStatus()) == NAU7802_CAL_IN_PROGRESS) {
-		// TODO
+	while (cal_ready == NAU7802_CAL_IN_PROGRESS) {
 		if ((timeout_ms > 0) && (((hrt_absolute_time()/1000) - startTime) > timeout_ms)) {
 			break;
 		}
-		usleep(1000);
+		px4_usleep(1000);
+		cal_ready = calAFEStatus();
 	}
-
-	if (cal_ready == NAU7802_CAL_SUCCESS) {
-		return (true);
+	if (cal_ready == NAU7802_CAL_PX4_ERROR) {
+		return PX4_ERROR;
 	}
-	return (false);
+	if (cal_ready == NAU7802_CAL_FAILURE) {
+		return PX4_ERROR;
+	}
+	return PX4_OK;
 }
 
 NAU7802_Cal_Status NAU7802::calAFEStatus() {
-	if (getBit(NAU7802_CTRL2_CALS, NAU7802_CTRL2)) {
-		return NAU7802_CAL_IN_PROGRESS;
-	}
+	bool bit;
 
-	if (getBit(NAU7802_CTRL2_CAL_ERROR, NAU7802_CTRL2)) {
-		return NAU7802_CAL_FAILURE;
-	}
+	int status = getBit(NAU7802_CTRL2_CALS, NAU7802_CTRL2, &bit);
+	if (status != PX4_OK) return NAU7802_CAL_PX4_ERROR;
+
+	if (bit) return NAU7802_CAL_IN_PROGRESS;
+
+	status = getBit(NAU7802_CTRL2_CAL_ERROR, NAU7802_CTRL2, &bit);
+	if (status != PX4_OK) return NAU7802_CAL_PX4_ERROR;
+
+	if (bit) return NAU7802_CAL_FAILURE;
 
 	// Calibration passed
 	return NAU7802_CAL_SUCCESS;
 }
 
 
-uint8_t NAU7802::getRegister(uint8_t registerAddress) {
-	// PX4 Transfer Function
-	// I2C::transfer(const uint8_t *send, const unsigned send_len, uint8_t *recv, const unsigned recv_len)
+int NAU7802::getRegister(uint8_t registerAddress, uint8_t *data) {
+	// // PX4 Transfer Function
+	// // I2C::transfer(const uint8_t *send, const unsigned send_len, uint8_t *recv, const unsigned recv_len)
 
-	// Send the register address and return 1 byte response
-	uint8_t val;
+	// // Send the register address and return 1 byte response
+	// uint8_t val;
+	// uint8_t cmd = registerAddress;
+	// transfer(&cmd, 1, &val, sizeof(val));
+
+	// // TODO: Handle errors here
+	// return val;
+
 	uint8_t cmd = registerAddress;
-	transfer(&cmd, 1, &val, sizeof(val));
+	int status = transfer(&cmd, sizeof(cmd), data, sizeof(*data));
+	if (status != PX4_OK) return status;
 
-	// TODO: Handle errors here
-	return val;
+	return PX4_OK;
 }
 
-bool NAU7802::setRegister(uint8_t registerAddress, uint8_t value) {
+int NAU7802::setRegister(uint8_t registerAddress, uint8_t value) {
 	// Send the two byte command and return success
 	uint8_t cmd[2];
 	cmd[0] = static_cast<uint8_t>(registerAddress);
 	cmd[1] = static_cast<uint8_t>(value);
-	int ret = transfer(&cmd[0], 2, nullptr, 0);
 
-	return ret == PX4_OK;
+	int status = transfer(&cmd[0], 2, nullptr, 0);
+	if (status != PX4_OK) return status;
 
+	return PX4_OK;
 }
 
-int32_t NAU7802::get24BitRegister(uint8_t registerAddress) {
+int NAU7802::get24BitRegister(uint8_t registerAddress, int32_t *data) {
 	// PX4 Transfer Function
 	// I2C::transfer(const uint8_t *send, const unsigned send_len, uint8_t *recv, const unsigned recv_len)
 
 	// Send the 1 byte command and record the 3 byte response
 	uint8_t val[3] = {0,0,0};
 	uint8_t cmd = registerAddress;
-	transfer(&cmd, 1, &val[0], sizeof(val));
 
-	// TODO: Error Handling of ret
+	int status = transfer(&cmd, 1, &val[0], sizeof(val));
+	if (status != PX4_OK) return status;
 
 	// Construct a union for conversion between unsigned and signed
 	union {
@@ -311,11 +378,13 @@ int32_t NAU7802::get24BitRegister(uint8_t registerAddress) {
 	union32_t.usign |= (uint32_t)val[2];      //LSB
 	if ((union32_t.usign & 0x00800000) == 0x00800000)
 		union32_t.usign |= 0xFF000000; // Preserve 2's complement
-	return (union32_t.sign);
+
+	*data = (union32_t.sign);
+	return PX4_OK;
 
 }
 
-bool NAU7802::set24BitRegister(uint8_t registerAddress, int32_t value) {
+int NAU7802::set24BitRegister(uint8_t registerAddress, int32_t value) {
 
 	// Construct a union for conversion between unsigned and signed and fill with value
 	union {
@@ -330,16 +399,20 @@ bool NAU7802::set24BitRegister(uint8_t registerAddress, int32_t value) {
 	cmd[1] = static_cast<uint8_t>((union32_t.usign >> 16) & 0xFF);
 	cmd[2] = static_cast<uint8_t>((union32_t.usign >> 8) & 0xFF);
 	cmd[3] = static_cast<uint8_t>(union32_t.usign & 0xFF);
-	int ret = transfer(&cmd[0], 4, nullptr, 0);
 
-	return ret == PX4_OK;
+	int status = transfer(&cmd[0], 4, nullptr, 0);
+	if (status != PX4_OK) return status;
+
+	return PX4_OK;
 }
 
-uint32_t NAU7802::get32BitRegister(uint8_t registerAddress) {
+int NAU7802::get32BitRegister(uint8_t registerAddress, uint32_t *data) {
 	// Send the register address and return 4 byte response
 	uint8_t val[4] = {0,0,0,0};
 	uint8_t cmd = registerAddress;
-	transfer(&cmd, 1, &(val[0]), sizeof(val));
+
+	int status = transfer(&cmd, 1, &(val[0]), sizeof(val));
+	if (status != PX4_OK) return status;
 
 	// Convert the 4 bytes to a single 32 bit unsigned integer
 	uint32_t val32;
@@ -349,11 +422,12 @@ uint32_t NAU7802::get32BitRegister(uint8_t registerAddress) {
 	val32 |= (uint32_t)val[3];       //LSB
 
 	// TODO: Handle errors here
-	return val32;
+	*data = val32;
+	return PX4_OK;
 
 }
 
-bool NAU7802::set32BitRegister(uint8_t registerAddress, uint32_t value) {
+int NAU7802::set32BitRegister(uint8_t registerAddress, uint32_t value) {
 	// Fill the command array with the value and send
 	uint8_t cmd[5];
 	cmd[0] = static_cast<uint8_t>(registerAddress);
@@ -361,30 +435,47 @@ bool NAU7802::set32BitRegister(uint8_t registerAddress, uint32_t value) {
 	cmd[2] = static_cast<uint8_t>((value >> 16) & 0xFF);
 	cmd[3] = static_cast<uint8_t>((value >> 8 ) & 0xFF);
 	cmd[4] = static_cast<uint8_t>( value        & 0xFF);
-	int ret = transfer(&cmd[0], 5, nullptr, 0);
 
-	return ret == PX4_OK;
+	int status = transfer(&cmd[0], 5, nullptr, 0);
+	if (status != PX4_OK) return status;
+
+	return PX4_OK;
 
 }
 
-bool NAU7802::setBit(uint8_t bitNumber, uint8_t registerAddress) {
-	uint8_t value = getRegister(registerAddress);
-	value |= (1 << bitNumber); //Set this bit
-	int ret = setRegister(registerAddress, value);
-	return ret == PX4_OK;
+int NAU7802::setBit(uint8_t bitNumber, uint8_t registerAddress) {
+	uint8_t reg = 0;
+	int status = getRegister(registerAddress, &reg);
+	if (status != PX4_OK) return status;
+
+	reg |= (1 << bitNumber); //Set this bit
+	status = setRegister(registerAddress, reg);
+	if (status != PX4_OK) return status;
+
+	return PX4_OK;
 }
 
-bool NAU7802::clearBit(uint8_t bitNumber, uint8_t registerAddress) {
-	uint8_t value = getRegister(registerAddress);
-	value &= ~(1 << bitNumber); //Set this bit
-	int ret = setRegister(registerAddress, value);
-	return ret == PX4_OK;
+int NAU7802::clearBit(uint8_t bitNumber, uint8_t registerAddress) {
+	uint8_t reg = 0;
+	int status = getRegister(registerAddress, &reg);
+	if (status != PX4_OK) return status;
+
+	reg &= ~(1 << bitNumber); //Set this bit
+	status =  setRegister(registerAddress, reg);
+	if (status != PX4_OK) return status;
+
+	return PX4_OK;
 }
 
-bool NAU7802::getBit(uint8_t bitNumber, uint8_t registerAddress) {
-	uint8_t value = getRegister(registerAddress);
-	value &= (1 << bitNumber); //Clear all but this bit
-	return (value);
+int NAU7802::getBit(uint8_t bitNumber, uint8_t registerAddress, bool *data) {
+	uint8_t reg = 0;
+	int status = getRegister(registerAddress,&reg);
+	if (status != PX4_OK) return status;
+
+	reg &= (1 << bitNumber);
+	*data = (bool)reg;
+
+	return PX4_OK;
 }
 
 
