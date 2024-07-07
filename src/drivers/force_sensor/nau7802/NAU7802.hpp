@@ -230,6 +230,11 @@ public:
 	void PublishMessage();
 	int init() override;
 
+  // static int module_set(BusInstanceIterator &iterator);
+
+  float zeroOffset = 0.0;
+	float gainAdj = 0.001;
+
 
 private:
 	// PX4 Specific ****************************************************
@@ -243,8 +248,6 @@ private:
 	// Sensor Specific ****************************************************
 
 	// Variables
-	int32_t _zeroOffset = 0;
-	float _calibrationFactor = 1.0;
 
 	unsigned long _ldoRampDelay = 250;
 

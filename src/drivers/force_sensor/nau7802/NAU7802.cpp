@@ -94,10 +94,12 @@ void NAU7802::PublishMessage() {
 	int32_t reading = 0;
 	int error = getReading(&reading);
 
+	float force_n = reading/128.0f*gainAdj+zeroOffset;
+
 	force_sensor_s force_msg{};
 	force_msg.timestamp = timestamp;
 	force_msg.error_status = error;
-	force_msg.force_measurement_n = reading;
+	force_msg.force_measurement_n = force_n;
 
 	_force_sensor_pub.publish(force_msg);
 
@@ -479,70 +481,24 @@ int NAU7802::getBit(uint8_t bitNumber, uint8_t registerAddress, bool *data) {
 }
 
 
-
-
-// int NAU7802::measure()
+// int NAU7802::module_set(const BusCLIArguments &cli, BusInstanceIterator &iterator)
 // {
-// 	// Send the command to begin a measurement.
-// 	uint8_t cmd_1 = CMD_MEASURE_NAU7802;
-// 	uint8_t cmd_2 = REG_CMD_NAU7802;;
+// 	bool is_running = false;
 
-// 	//write to driver to start
-// 	uint8_t cmd[2];
-// 	cmd[0] = static_cast<uint8_t>(cmd_2);
-// 	cmd[1] = static_cast<uint8_t>(cmd_1);
-// 	int ret = transfer(&cmd[0], 2, nullptr, 0);
-
-// 	if (OK != ret) {
-// 		perf_count(_comms_errors);
+// 	while (iterator.next()) {
+// 		if (iterator.instance()) {
+// 			NAU7802 *instance = (NAU7802 *)iterator.instance();
+// 			instance->zeroOffset = cli.zero;
+// 			instance->gainAdj = cli.gain_adj;
+// 			PX4_INFO("Set Zero Offset to %f and Gain Adjustment to %f", instance->_zeroOffset, instance->gainAdj);
+// 			is_running = true;
+// 		}
 // 	}
 
-// 	return ret;
-// }
-
-// int NAU7802::collect()
-// {
-// 	perf_begin(_sample_perf);
-// 	const hrt_abstime timestamp_sample = hrt_absolute_time();
-
-// 	// Read pressure and temperature as one block
-// 	uint8_t val[5] {0, 0, 0, 0, 0};
-// 	uint8_t cmd = REG_PRESS_DATA_NAU7802;
-// 	transfer(&cmd, 1, &val[0], sizeof(val));
-
-// 	//Pressure is a signed 24-bit value
-// 	int32_t press = (val[0] << 24) | (val[1] << 16) | (val[2] << 8);
-// 	// convert back to 24 bit
-// 	press >>= 8;
-
-// 	// k is a shift based on the pressure range of the device. See
-// 	// table in the datasheet
-// 	constexpr uint8_t k = 7;
-// 	constexpr float press_scale = 1.0f / (1U << k); //= 1.0f / (1U << k);
-// 	press_sum += press * press_scale;
-// 	press_count++;
-
-// 	// temperature is 16 bit signed in units of 1/256 C
-// 	const int16_t temp = (val[3] << 8) | val[4];
-// 	constexpr float temp_scale = 1.0f / 256;
-// 	_temperature = temp * temp_scale;
-// 	last_sample_time = hrt_absolute_time();
-// 	bool status = get_differential_pressure();
-
-// 	if (status == true && (int)_temperature != 0) {
-// 		// publish values
-// 		differential_pressure_s differential_pressure{};
-// 		differential_pressure.timestamp_sample = timestamp_sample;
-// 		differential_pressure.device_id = get_device_id();
-// 		differential_pressure.differential_pressure_pa = _pressure;
-// 		differential_pressure.temperature = _temperature ;
-// 		differential_pressure.error_count = perf_event_count(_comms_errors);
-// 		differential_pressure.timestamp = timestamp_sample;
-// 		_differential_pressure_pub.publish(differential_pressure);
-
+// 	if (!is_running) {
+// 		PX4_INFO("Not running");
+// 		return -1;
 // 	}
 
-// 	perf_end(_sample_perf);
-
-// 	return PX4_OK;
+// 	return 0;
 // }

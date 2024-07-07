@@ -78,10 +78,8 @@ extern "C" int nau7802_main(int argc, char *argv[])
 
 	if (!strcmp(verb, "start")) {
 		return ThisDriver::module_start(cli, iterator);
-
 	} else if (!strcmp(verb, "stop")) {
 		return ThisDriver::module_stop(iterator);
-
 	} else if (!strcmp(verb, "status")) {
 		return ThisDriver::module_status(iterator);
 	}

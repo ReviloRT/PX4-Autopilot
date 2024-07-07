@@ -32,7 +32,7 @@
  ****************************************************************************/
 
 /**
- * NAU7802 differential pressure sensor (external I2C)
+ * NAU7802 force sensor (external I2C)
  *
  * @reboot_required true
  * @group Sensors
